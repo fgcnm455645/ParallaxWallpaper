@@ -22,7 +22,26 @@ jobs:
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
       - name: Download depth model
-        run: bash scripts/download_model.sh
+        run: |
+          mkdir -p app/src/main/assets
+          F=app/src/main/assets/depthanythingv2-vits-dynamic-quant.onnx
+          rm -f $F
+          for U in \
+            "https://raw.githubusercontent.com/combatwombat/tiefling/main/site/public/models/depthanythingv2-vits-dynamic-quant.onnx" \
+            "https://media.githubusercontent.com/media/combatwombat/tiefling/main/site/public/models/depthanythingv2-vits-dynamic-quant.onnx" \
+            "https://github.com/combatwombat/tiefling/raw/main/site/public/models/depthanythingv2-vits-dynamic-quant.onnx"; do
+            echo "Trying $U"
+            curl -L --fail --retry 3 -o $F "$U" || continue
+            S=$(stat -c%s $F)
+            echo "size=$S"
+            if [ "$S" -gt 10000000 ]; then break; fi
+            rm -f $F
+          done
+          ls -l app/src/main/assets/
+          if [ ! -f $F ] || [ "$(stat -c%s $F)" -lt 10000000 ]; then
+            echo "MODEL DOWNLOAD FAILED"
+            exit 1
+          fi
 
       - name: Check model exists
         run: ls -lh app/src/main/assets/
