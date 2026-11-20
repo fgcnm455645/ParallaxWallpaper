@@ -68,6 +68,60 @@ jobs:
           grep -rn "Theme.Material.NoTitleBar" app/src || true
           grep -rl "Theme.Material.NoTitleBar" app/src | xargs -r sed -i 's/Theme\.Material\.NoTitleBar/Theme.Material.NoActionBar/g'
 
+      - name: Add crash logger
+        run: |
+          D=app/src/main/java/com/example/parallaxwallpaper
+          mkdir -p $D
+          cat > $D/CrashApp.kt << 'EOF'
+          package com.example.parallaxwallpaper
+
+          import android.app.Application
+          import android.content.ContentValues
+          import android.os.Build
+          import android.provider.MediaStore
+          import java.io.PrintWriter
+          import java.io.StringWriter
+
+          class CrashApp : Application() {
+              override fun onCreate() {
+                  super.onCreate()
+                  val prev = Thread.getDefaultUncaughtExceptionHandler()
+                  Thread.setDefaultUncaughtExceptionHandler { t, e ->
+                      try {
+                          if (Build.VERSION.SDK_INT >= 29) {
+                              val sw = StringWriter()
+                              e.printStackTrace(PrintWriter(sw))
+                              val text = "Thread: " + t.name + "\n" + Build.MODEL + " API " + Build.VERSION.SDK_INT + "\n" + sw.toString()
+                              val v = ContentValues()
+                              v.put(MediaStore.Downloads.DISPLAY_NAME, "parallax_crash_" + System.currentTimeMillis() + ".txt")
+                              v.put(MediaStore.Downloads.MIME_TYPE, "text/plain")
+                              v.put(MediaStore.Downloads.RELATIVE_PATH, "Download")
+                              val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v)
+                              if (uri != null) {
+                                  contentResolver.openOutputStream(uri)?.use { o -> o.write(text.toByteArray()) }
+                              }
+                          }
+                      } catch (x: Throwable) {
+                      }
+                      prev?.uncaughtException(t, e)
+                  }
+              }
+          }
+          EOF
+          python3 - << 'PY'
+          import re
+          p = "app/src/main/AndroidManifest.xml"
+          s = open(p).read()
+          m = re.search(r"<application[^>]*>", s, re.S)
+          tag = m.group(0)
+          if "android:name=" not in tag:
+              s = s.replace("<application", '<application android:name="com.example.parallaxwallpaper.CrashApp"', 1)
+              open(p, "w").write(s)
+              print("CrashApp registered")
+          else:
+              print("application already has a name:", tag)
+          PY
+
       - name: Only arm64 init script
         run: |
           cat > $HOME/arm64.init.gradle << 'EOF'
