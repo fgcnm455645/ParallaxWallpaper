@@ -68,20 +68,30 @@ jobs:
           grep -rn "Theme.Material.NoTitleBar" app/src || true
           grep -rl "Theme.Material.NoTitleBar" app/src | xargs -r sed -i 's/Theme\.Material\.NoTitleBar/Theme.Material.NoActionBar/g'
 
+      - name: Only arm64 init script
+        run: |
+          cat > $HOME/arm64.init.gradle << 'EOF'
+          allprojects { p ->
+              p.pluginManager.withPlugin("com.android.application") {
+                  p.extensions.getByName("android").defaultConfig.ndk.abiFilters.add("arm64-v8a")
+              }
+          }
+          EOF
+
       - name: Build debug APK
         run: |
           for i in 1 2 3; do
-            gradle assembleDebug --no-daemon --refresh-dependencies -Pandroid.injected.build.abi=arm64-v8a && exit 0
+            gradle assembleDebug --no-daemon -I $HOME/arm64.init.gradle && exit 0
             echo "Attempt $i failed, retrying..."
             sleep 20
           done
           exit 1
 
       - name: Find APK
-        run: find . -name "*.apk" -o -name "*.aab" | head -20
+        run: find . -name "*.apk" -o -name "*.aab" | head -20 | xargs -r ls -lh
 
       - uses: actions/upload-artifact@v4
         with:
           name: ParallaxWallpaper-apk
-          path: "**/build/outputs/**/*.apk"
+          path: "**/build/**/*.apk"
           if-no-files-found: error
