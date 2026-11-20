@@ -31,6 +31,38 @@ jobs:
         with:
           gradle-version: 8.10.2
 
+      - name: Add launcher icons
+        run: |
+          R=app/src/main/res
+          mkdir -p $R/drawable $R/values $R/mipmap-anydpi-v26
+          cat > $R/values/ic_launcher_bg.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="ic_launcher_bg">#14142B</color>
+          </resources>
+          EOF
+          cat > $R/drawable/ic_launcher_fg.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path android:fillColor="#3D3D8F" android:pathData="M18,76 L46,40 L64,62 L74,50 L90,76 Z"/>
+              <path android:fillColor="#7C7CFF" android:pathData="M28,82 L52,52 L68,72 L76,62 L88,82 Z"/>
+              <path android:fillColor="#FFFFFF" android:pathData="M72,30 m-6,0 a6,6 0 1,0 12,0 a6,6 0 1,0 -12,0"/>
+          </vector>
+          EOF
+          for n in ic_launcher ic_launcher_round; do
+          cat > $R/mipmap-anydpi-v26/$n.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_launcher_bg"/>
+              <foreground android:drawable="@drawable/ic_launcher_fg"/>
+          </adaptive-icon>
+          EOF
+          done
+
       - name: Fix theme name
         run: |
           grep -rn "Theme.Material.NoTitleBar" app/src || true
