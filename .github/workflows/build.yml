@@ -77,7 +77,7 @@ jobs:
           done
           exit 1
 
-            - name: Find APK
+      - name: Find APK
         run: find . -name "*.apk" -o -name "*.aab" | head -20
 
       - uses: actions/upload-artifact@v4
