@@ -87,6 +87,94 @@ jobs:
           grep -rn "Theme.Material.NoTitleBar" app/src || true
           grep -rl "Theme.Material.NoTitleBar" app/src | xargs -r sed -i 's/Theme\.Material\.NoTitleBar/Theme.Material.NoActionBar/g'
 
+      - name: Fix parallax rendering
+        run: |
+          cat > $HOME/patch_parallax.py << 'EOF'
+          import re, sys
+
+          base = "app/src/main/java/com/example/parallaxwallpaper/"
+
+          def patch(path, edits):
+              s = open(path).read()
+              for old, new in edits:
+                  if old not in s:
+                      print("PATTERN NOT FOUND in " + path + ":\n" + old)
+                      sys.exit(1)
+                  s = s.replace(old, new, 1)
+              open(path, "w").write(s)
+
+          # ---------- ParallaxEngine.kt ----------
+          p = base + "wallpaper/ParallaxEngine.kt"
+          s = open(p).read()
+
+          # 1) new fragment shader
+          start = s.index('private val FRAGMENT_SHADER = """')
+          end = s.index('""".trimIndent()', start) + len('""".trimIndent()')
+          new_fs = '''private val FRAGMENT_SHADER = """
+                      #ifdef GL_FRAGMENT_PRECISION_HIGH
+                      precision highp float;
+                      #else
+                      precision mediump float;
+                      #endif
+                      uniform sampler2D uImageTexture;
+                      uniform sampler2D uDepthTexture;
+                      uniform vec2      uParallaxOffset;
+                      uniform float     uParallaxStrength;
+                      uniform vec2      uUvScale;
+                      varying vec2      vTexCoord;
+
+                      // true mirror-repeat: 0..1 stays as is, 1..2 mirrors back
+                      vec2 mirrorUv(vec2 p) {
+                          return 1.0 - abs(mod(p, 2.0) - 1.0);
+                      }
+
+                      void main() {
+                          // cover-crop the image to the screen (no stretching) with a small zoom margin
+                          vec2 uv  = (vTexCoord - 0.5) * uUvScale + 0.5;
+                          vec2 off = uParallaxOffset * uParallaxStrength;
+
+                          // depth: 1.0 = near, 0.0 = far (Depth Anything convention)
+                          float d1 = texture2D(uDepthTexture, mirrorUv(uv)).r;
+                          vec2  p1 = uv + off * (d1 - 0.5);
+                          // second lookup at the shifted position reduces tearing
+                          float d2 = texture2D(uDepthTexture, mirrorUv(p1)).r;
+                          vec2  p2 = uv + off * (d2 - 0.5);
+
+                          gl_FragColor = texture2D(uImageTexture, mirrorUv(p2));
+                      }
+                  """.trimIndent()'''
+          s = s[:start] + new_fs + s[end:]
+          open(p, "w").write(s)
+
+          patch(p, [
+              ("    private var uAspectRatio = 0\n",
+               "    private var uAspectRatio = 0\n    private var uUvScale = 0\n    private var imageAspect = 1f\n"),
+              ('        uParallaxStrength = GLES20.glGetUniformLocation(program, "uParallaxStrength")\n',
+               '        uParallaxStrength = GLES20.glGetUniformLocation(program, "uParallaxStrength")\n        uUvScale = GLES20.glGetUniformLocation(program, "uUvScale")\n'),
+              ("    fun uploadImage(bitmap: Bitmap) {\n",
+               "    fun uploadImage(bitmap: Bitmap) {\n        imageAspect = bitmap.width.toFloat() / bitmap.height.toFloat()\n"),
+              ("        GLES20.glUniform2f(uParallaxOffset, tiltX, tiltY)\n",
+               "        // gyro pitch (tiltX) moves vertically, roll (tiltY) moves horizontally\n"
+               "        GLES20.glUniform2f(uParallaxOffset, -tiltY, -tiltX)\n"
+               "        val screenAspect = surfaceWidth.toFloat() / surfaceHeight.toFloat()\n"
+               "        val sx = if (imageAspect > screenAspect) screenAspect / imageAspect else 1f\n"
+               "        val sy = if (imageAspect > screenAspect) 1f else imageAspect / screenAspect\n"
+               "        GLES20.glUniform2f(uUvScale, sx * 0.9f, sy * 0.9f)\n"),
+          ])
+
+          # ---------- DepthEstimator.kt ----------
+          patch(base + "depth/DepthEstimator.kt", [
+              ("            inputBuf[i]               = ((px shr 16) and 0xFF) / 255f  // R\n",
+               "            inputBuf[i]               = (((px shr 16) and 0xFF) / 255f - 0.485f) / 0.229f  // R\n"),
+              ("            inputBuf[planeSize + i]   = ((px shr  8) and 0xFF) / 255f  // G\n",
+               "            inputBuf[planeSize + i]   = (((px shr  8) and 0xFF) / 255f - 0.456f) / 0.224f  // G\n"),
+              ("            inputBuf[2 * planeSize + i] = (px and 0xFF)          / 255f  // B\n",
+               "            inputBuf[2 * planeSize + i] = ((px and 0xFF) / 255f - 0.406f) / 0.225f  // B\n"),
+          ])
+          print("PARALLAX PATCH OK")
+          EOF
+          python3 $HOME/patch_parallax.py
+
       - name: Add crash logger
         run: |
           D=app/src/main/java/com/example/parallaxwallpaper
